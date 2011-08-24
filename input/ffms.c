@@ -126,6 +126,19 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
     info->fps_den      = videop->FPSDenominator;
     info->fps_num      = videop->FPSNumerator;
     h->vfr_input       = info->vfr;
+
+    /* -1 = 'unset' (internal) , 2 from lavf|ffms = 'unset' */
+    if( videop->ColorSpace >= 0 && videop->ColorSpace <= 8 && videop->ColorSpace != 2 )
+        info->colormatrix = videop->ColorSpace;
+    else
+        info->colormatrix = -1;
+
+    /* As per ffms.h: 0=unspecified, 1=limited, 2=full */
+    if( videop->ColorRange == 0 )
+        info->full_range = -1; /* 'unset' (internal) */
+    else
+        info->full_range = videop->ColorRange == 2;
+
     /* ffms is thread unsafe as it uses a single frame buffer for all frame requests */
     info->thread_safe  = 0;
 
