@@ -35,6 +35,7 @@ typedef struct
     uint64_t plane_size[4];
     uint64_t frame_size;
     int bit_depth;
+    int full_range;
 } raw_hnd_t;
 
 static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, cli_input_opt_t *opt )
@@ -42,6 +43,8 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
     raw_hnd_t *h = calloc( 1, sizeof(raw_hnd_t) );
     if( !h )
         return -1;
+
+    h->full_range = info->full_range == 1;
 
     if( !opt->resolution )
     {
@@ -114,8 +117,14 @@ static int read_frame_internal( cli_pic_t *pic, raw_hnd_t *h )
             uint64_t pixel_count = h->plane_size[i];
             int lshift = 16 - h->bit_depth;
             int rshift = 2*h->bit_depth - 16;
-            for( uint64_t j = 0; j < pixel_count; j++ )
-                plane[j] = (plane[j] << lshift) + (plane[j] >> rshift);
+            if( h->full_range )
+                for( uint64_t j = 0; j < pixel_count; j++ )
+                    /* x264's original algorithm */
+                    plane[j] = (plane[j] << lshift) + (plane[j] >> rshift);
+            else
+                for( uint64_t j = 0; j < pixel_count; j++ )
+                    /* Limited range algorithm mentioned in BT.709, Part 2 */
+                    plane[j] = plane[j] << lshift;
         }
     }
     return error;
