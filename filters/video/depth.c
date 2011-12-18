@@ -68,7 +68,6 @@ static void dither_plane_##pitch( pixel *dst, int dst_stride, uint16_t *src, int
                                         int width, int height, int16_t *errors ) \
 { \
     const int lshift = 16-BIT_DEPTH; \
-    const int rshift = 2*BIT_DEPTH-16; \
     const int pixel_max = (1 << BIT_DEPTH)-1; \
     const int half = 1 << (16-BIT_DEPTH); \
     memset( errors, 0, (width+1) * sizeof(int16_t) ); \
@@ -79,7 +78,7 @@ static void dither_plane_##pitch( pixel *dst, int dst_stride, uint16_t *src, int
         { \
             err = err*2 + errors[x] + errors[x+1]; \
             dst[x*pitch] = x264_clip3( (((src[x*pitch]+half)<<2)+err)*pixel_max >> 18, 0, pixel_max ); \
-            errors[x] = err = src[x*pitch] - (dst[x*pitch] << lshift) - (dst[x*pitch] >> rshift); \
+            errors[x] = err = src[x*pitch] - (dst[x*pitch] << lshift); \
         } \
     } \
 }
@@ -120,7 +119,7 @@ static void scale_image( cli_image_t *output, cli_image_t *img )
      * while also being fast. for n-bit we basically do the same thing, but we
      * discard the lower 16-n bits. */
     int csp_mask = img->csp & X264_CSP_MASK;
-    const int shift = 16-BIT_DEPTH;
+    const int shift = BIT_DEPTH - 8;
     for( int i = 0; i < img->planes; i++ )
     {
         uint8_t *src = img->plane[i];
@@ -131,7 +130,7 @@ static void scale_image( cli_image_t *output, cli_image_t *img )
         for( int j = 0; j < height; j++ )
         {
             for( int k = 0; k < width; k++ )
-                dst[k] = ((src[k] << 8) + src[k]) >> shift;
+                dst[k] = src[k] << shift;
 
             src += img->stride[i];
             dst += output->stride[i]/2;
