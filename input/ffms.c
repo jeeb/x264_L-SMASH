@@ -31,6 +31,7 @@
 #undef DECLARE_ALIGNED
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
+#include <libavutil/pixdesc.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -154,9 +155,9 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
 
     /* ffms timestamps are in milliseconds. ffms also uses int64_ts for timebase,
      * so we need to reduce large timebases to prevent overflow */
+    const FFMS_TrackTimeBase *timebase = FFMS_GetTimeBase( h->track );
     if( h->vfr_input )
     {
-        const FFMS_TrackTimeBase *timebase = FFMS_GetTimeBase( h->track );
         int64_t timebase_num = timebase->Num;
         int64_t timebase_den = timebase->Den * 1000;
         h->reduce_pts = 0;
@@ -170,6 +171,20 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
         info->timebase_num = timebase_num;
         info->timebase_den = timebase_den;
     }
+
+    /* show video info */
+    FFMS_Indexer *idxer     = FFMS_CreateIndexer( psz_filename, &e );
+    const char *codec       = FFMS_GetCodecNameI( idxer, trackno );
+    double duration     = videop->NumFrames * videop->FPSDenominator / videop->FPSNumerator;
+    x264_cli_log( "ffms", X264_LOG_INFO,
+                  "\n Codec     : %s\n PixFmt    : %s\n Timebase  : %d/%d\n Duration  : %d:%02d:%02d\n",
+                  codec,
+                  av_pix_fmt_descriptors[frame->EncodedPixelFormat].name,
+                  timebase->Num / 1000, timebase->Den,
+                  (int)duration / 60 / 60, (int)duration / 60 % 60, (int)duration - (int)duration / 60 * 60 );
+    if( !strcmp( codec,"rawvideo" ) )
+        x264_cli_log( "ffms", X264_LOG_WARNING, "recommend using --demuxer lavf with rawvideo" );
+    FFMS_CancelIndexing( idxer );
 
     *p_handle = h;
     return 0;
