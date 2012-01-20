@@ -24,7 +24,8 @@ SRCCLI = x264.c input/input.c input/timecode.c input/raw.c input/y4m.c \
          filters/video/video.c filters/video/source.c filters/video/internal.c \
          filters/video/resize.c filters/video/cache.c filters/video/fix_vfr_pts.c \
          filters/video/select_every.c filters/video/crop.c filters/video/depth.c \
-         output/mp4.c audio/audio.c audio/encoders.c filters/audio/audio_filters.c filters/audio/internal.c
+         output/mp4.c audio/audio.c audio/encoders.c filters/audio/audio_filters.c filters/audio/internal.c \
+         filters/video/pad.c filters/video/vflip.c
 
 SRCCLI += $(addprefix output/mp4/, isom.c utils.c write.c importer.c mp4sys.c mp4a.c summary.c chapter.c)
 
@@ -36,7 +37,12 @@ CONFIG := $(shell cat config.h)
 
 # GPL-only files
 ifneq ($(findstring HAVE_GPL 1, $(CONFIG)),)
-SRCCLI +=
+SRCCLI += filters/video/yadif.c filters/video/yadif_filter_line.c
+
+ifeq ($(ARCH),X86)
+SRCCLI += filters/video/x86/yadif_filter_line.c
+endif
+
 endif
 
 # Optional module sources
