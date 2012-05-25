@@ -142,6 +142,12 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
     /* ffms is thread unsafe as it uses a single frame buffer for all frame requests */
     info->thread_safe  = 0;
 
+    /* -1 = 'unset' (internal) , 2 from lavf|ffms = 'unset' */
+    if( videop->ColorSpace >= 0 && videop->ColorSpace <= 8 && videop->ColorSpace != 2 )
+        info->colormatrix = videop->ColorSpace;
+    else
+        info->colormatrix = -1;
+
     const FFMS_Frame *frame = FFMS_GetFrame( h->video_source, 0, &e );
     FAIL_IF_ERROR( !frame, "could not read frame 0\n" )
 
