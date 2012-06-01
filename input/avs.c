@@ -338,6 +338,19 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
         info->csp = X264_CSP_NONE;
     info->vfr = 0;
 
+    if( info->fps_den != 1 )
+    {
+        double f_fps = (double)info->fps_num / info->fps_den;
+        int i_nearest_NTSC_num = (int)(f_fps * 1.001 + 0.5);
+        const double f_epsilon = 0.01;
+
+        if( fabs(f_fps - i_nearest_NTSC_num / 1.001) < f_epsilon )
+        {
+            info->fps_num = i_nearest_NTSC_num * 1000;
+            info->fps_den = 1001;
+        }
+    }
+
     if( opt->bit_depth > 8 )
     {
         FAIL_IF_ERROR( info->width & 3, "avisynth 16bit hack requires that width is at least mod4\n" )
