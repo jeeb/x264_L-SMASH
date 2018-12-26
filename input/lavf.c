@@ -205,6 +205,10 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
     /* lavf is thread unsafe as calling av_read_frame invalidates previously read AVPackets */
     info->thread_safe  = 0;
     h->vfr_input       = info->vfr;
+
+    if( opt->demuxer_threads > 1 )
+        c->thread_count = opt->demuxer_threads;
+
     FAIL_IF_ERROR( avcodec_open2( c, avcodec_find_decoder( c->codec_id ), NULL ),
                    "could not find decoder for video stream\n" )
 
@@ -222,6 +226,12 @@ static int open_file( char *psz_filename, hnd_t *p_handle, video_info_t *info, c
     info->sar_height = c->sample_aspect_ratio.den;
     info->sar_width  = c->sample_aspect_ratio.num;
     info->fullrange |= c->color_range == AVCOL_RANGE_JPEG;
+
+    /* -1 = 'unset' (internal) , 2 from lavf|ffms = 'unset' */
+    if( c->colorspace >= 0 && c->colorspace <= 8 && c->colorspace != 2 )
+        info->colormatrix = c->colorspace;
+    else
+        info->colormatrix = -1;
 
     /* avisynth stores rgb data vertically flipped. */
     if( !strcasecmp( get_filename_extension( psz_filename ), "avs" ) &&

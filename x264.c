@@ -658,9 +658,13 @@ static void help( x264_param_t *defaults, int longhelp )
     H2( "      --aq-mode <integer>     AQ method [%d]\n"
         "                                  - 0: Disabled\n"
         "                                  - 1: Variance AQ (complexity mask)\n"
-        "                                  - 2: Auto-variance AQ (experimental)\n", defaults->rc.i_aq_mode );
+        "                                  - 2: Auto-variance AQ (experimental)\n"
+        "                                  - 3: Auto-variance AQ mod1\n"
+        "                                  - 4: Auto-variance AQ mod2\n", defaults->rc.i_aq_mode );
     H1( "      --aq-strength <float>   Reduces blocking and blurring in flat and\n"
         "                              textured areas. [%.1f]\n", defaults->rc.f_aq_strength );
+    H1( "      --fade-compensate <float> Allocate more bits to fades [%.1f]\n", defaults->rc.f_fade_compensate );
+    H2( "                                  Approximate sane range: 0.0 - 1.0 (requires mb-tree)\n" );
     H1( "\n" );
     H0( "  -p, --pass <integer>        Enable multipass ratecontrol\n"
         "                                  - 1: First pass, creates stats file\n"
@@ -726,6 +730,9 @@ static void help( x264_param_t *defaults, int longhelp )
                                        defaults->analyse.f_psy_rd, defaults->analyse.f_psy_trellis );
     H2( "      --no-psy                Disable all visual optimizations that worsen\n"
         "                              both PSNR and SSIM.\n" );
+    H1( "      --fgo <int>             Activates Film Grain Optimization. (requires subme>=7) [%d]\n", defaults->analyse.i_fgo );
+    H2( "                                  - 5: weak FGO\n"
+        "                                  - 15: strong FGO\n" );
     H2( "      --no-mixed-refs         Don't decide references on a per partition basis\n" );
     H2( "      --no-chroma-me          Ignore chroma in motion estimation\n" );
     H1( "      --no-8x8dct             Disable adaptive spatial transform size\n" );
@@ -849,6 +856,7 @@ static void help( x264_param_t *defaults, int longhelp )
     H1( "      --psnr                  Enable PSNR computation\n" );
     H1( "      --ssim                  Enable SSIM computation\n" );
     H1( "      --threads <integer>     Force a specific number of threads\n" );
+    H1( "      --demuxer-threads <integer> Force a specific number of threads for demuxer (lavf, ffms)\n" );
     H2( "      --lookahead-threads <integer> Force a specific number of lookahead threads\n" );
     H2( "      --sliced-threads        Low-latency but lower-efficiency threading\n" );
     H2( "      --thread-input          Run Avisynth in its own thread\n" );
@@ -917,6 +925,7 @@ typedef enum
     OPT_TIMEBASE,
     OPT_PULLDOWN,
     OPT_LOG_LEVEL,
+    OPT_DEMUXER_THREADS,
     OPT_VIDEO_FILTER,
     OPT_INPUT_FMT,
     OPT_INPUT_RES,
@@ -941,7 +950,8 @@ typedef enum
     OPT_NO_REMUX,
     OPT_FORCE_DISPLAY_SIZE,
     OPT_FRAGMENTS,
-    OPT_PRIMING
+    OPT_PRIMING,
+    OPT_COLORMATRIX
 } OptionsOPT;
 
 static char short_options[] = "8A:B:b:f:hI:i:m:o:p:q:r:t:Vvw";
@@ -1023,6 +1033,8 @@ static struct option long_options[] =
     { "no-dct-decimate",   no_argument, NULL, 0 },
     { "aq-strength", required_argument, NULL, 0 },
     { "aq-mode",     required_argument, NULL, 0 },
+    { "fgo",         required_argument, NULL, 0 },
+    { "fade-compensate", required_argument, NULL, 0 },
     { "deadzone-inter", required_argument, NULL, 0 },
     { "deadzone-intra", required_argument, NULL, 0 },
     { "level",       required_argument, NULL, 0 },
@@ -1044,6 +1056,7 @@ static struct option long_options[] =
     { "zones",       required_argument, NULL, 0 },
     { "qpfile",      required_argument, NULL, OPT_QPFILE },
     { "threads",     required_argument, NULL, 0 },
+    { "demuxer-threads",   required_argument, NULL, OPT_DEMUXER_THREADS },
     { "lookahead-threads", required_argument, NULL, 0 },
     { "sliced-threads",    no_argument, NULL, 0 },
     { "no-sliced-threads", no_argument, NULL, 0 },
@@ -1082,7 +1095,7 @@ static struct option long_options[] =
     { "range",       required_argument, NULL, OPT_RANGE },
     { "colorprim",   required_argument, NULL, 0 },
     { "transfer",    required_argument, NULL, 0 },
-    { "colormatrix", required_argument, NULL, 0 },
+    { "colormatrix", required_argument, NULL, OPT_COLORMATRIX },
     { "chromaloc",   required_argument, NULL, 0 },
     { "force-cfr",         no_argument, NULL, 0 },
     { "tcfile-in",   required_argument, NULL, OPT_TCFILE_IN },
@@ -1371,6 +1384,8 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
     int b_user_ref = 0;
     int b_user_fps = 0;
     int b_user_interlaced = 0;
+    int b_user_colormatrix = 0;
+    int shown_colormatrix = 2; /* shown as 'undef' */
     cli_input_opt_t input_opt;
     cli_output_opt_t output_opt;
     char *preset = NULL;
@@ -1479,6 +1494,9 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
                 break;
             case OPT_THREAD_INPUT:
                 b_thread_input = 1;
+                break;
+            case OPT_DEMUXER_THREADS:
+                input_opt.demuxer_threads = X264_MAX( atoi( optarg ), 1 );
                 break;
             case OPT_QUIET:
                 cli_log_level = param->i_log_level = X264_LOG_NONE;
@@ -1637,6 +1655,9 @@ static int parse( int argc, char **argv, x264_param_t *param, cli_opt_t *opt )
             case OPT_PRIMING:
                 output_opt.priming = atoi( optarg );
                 break;
+            case OPT_COLORMATRIX:
+                b_user_colormatrix = 1;
+                goto generic_option;
             default:
 generic_option:
             {
@@ -1687,6 +1708,7 @@ generic_option:
     char demuxername[5];
 
     /* set info flags to be overwritten by demuxer as necessary. */
+    info.colormatrix = param->vui.i_colmatrix;
     info.csp        = param->i_csp;
     info.fps_num    = param->i_fps_num;
     info.fps_den    = param->i_fps_den;
@@ -1700,6 +1722,7 @@ generic_option:
     input_opt.seek = opt->i_seek;
     input_opt.progress = opt->b_progress;
     input_opt.output_csp = output_csp;
+    input_opt.demuxer_threads = x264_clip3( input_opt.demuxer_threads, 1, X264_THREAD_MAX );
 
     if( select_input( demuxer, demuxername, input_filename, &opt->hin, &info, &input_opt ) )
         return -1;
@@ -1724,11 +1747,29 @@ generic_option:
             return -1;
     }
 
+    if( info.colormatrix >= 0 && info.colormatrix <= 8 )
+        shown_colormatrix = info.colormatrix;
+
     x264_reduce_fraction( &info.sar_width, &info.sar_height );
     x264_reduce_fraction( &info.fps_num, &info.fps_den );
     x264_cli_log( demuxername, X264_LOG_INFO, "%dx%d%c %u:%u @ %u/%u fps (%cfr)\n", info.width,
                   info.height, info.interlaced ? 'i' : 'p', info.sar_width, info.sar_height,
                   info.fps_num, info.fps_den, info.vfr ? 'v' : 'c' );
+    x264_cli_log( demuxername,  X264_LOG_INFO, "color matrix: %s\n",
+                  strtable_lookup( x264_colmatrix_names, shown_colormatrix ));
+
+    /* In case of YUV<->RGB, and no user-set settings,
+       change the metadata gotten from demuxers. */
+    if( ( info.csp & X264_CSP_MASK ) >= X264_CSP_BGR && ( output_csp & X264_CSP_MASK ) <= X264_CSP_YV24 )
+    {
+        if( !b_user_colormatrix )
+            info.colormatrix = 5; /* bt470bg ; swscale and avisynth by default do their magic in it. */
+    }
+    else if( ( info.csp & X264_CSP_MASK ) <= X264_CSP_YV24 && ( output_csp & X264_CSP_MASK ) >= X264_CSP_BGR )
+    {
+        if( !b_user_colormatrix )
+            info.colormatrix = 0; /* GBR */
+    }
 
     char arg[MAX_ARGS] = { 0 };
     int len = 0;
@@ -1816,6 +1857,9 @@ generic_option:
     if( input_opt.input_range != RANGE_AUTO )
         info.fullrange = input_opt.input_range;
 
+    if( b_user_colormatrix )
+        info.colormatrix = param->vui.i_colmatrix;
+
     if( init_vid_filters( vid_filters, &opt->hin, &info, param, output_csp ) )
         return -1;
 
@@ -1825,6 +1869,7 @@ generic_option:
     param->i_fps_den = info.fps_den;
     param->i_timebase_num = info.timebase_num;
     param->i_timebase_den = info.timebase_den;
+    param->vui.i_colmatrix = info.colormatrix;
     param->vui.i_sar_width  = info.sar_width;
     param->vui.i_sar_height = info.sar_height;
 

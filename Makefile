@@ -26,7 +26,8 @@ SRCCLI = x264.c input/input.c input/timecode.c input/raw.c input/y4m.c \
          filters/video/video.c filters/video/source.c filters/video/internal.c \
          filters/video/resize.c filters/video/cache.c filters/video/fix_vfr_pts.c \
          filters/video/select_every.c filters/video/crop.c filters/video/depth.c \
-         output/mp4.c audio/audio.c audio/encoders.c filters/audio/audio_filters.c filters/audio/internal.c
+         output/mp4.c audio/audio.c audio/encoders.c filters/audio/audio_filters.c filters/audio/internal.c \
+         filters/video/hqdn3d.c filters/video/pad.c filters/video/vflip.c
 
 SRCCLI += $(addprefix output/mp4/, isom.c utils.c write.c importer.c mp4sys.c mp4a.c summary.c chapter.c dts.c a52.c h264.c vc1.c alac.c meta.c description.c box.c)
 
@@ -41,7 +42,12 @@ CONFIG := $(shell cat config.h)
 
 # GPL-only files
 ifneq ($(findstring HAVE_GPL 1, $(CONFIG)),)
-SRCCLI +=
+SRCCLI += filters/video/yadif.c filters/video/yadif_filter_line.c
+
+ifeq ($(ARCH),X86)
+SRCCLI += filters/video/x86/yadif_filter_line.c
+endif
+
 endif
 
 # Optional module sources
@@ -238,7 +244,7 @@ OPT0 = --crf 30 -b1 -m1 -r1 --me dia --no-cabac --direct temporal --ssim --no-we
 OPT1 = --crf 16 -b2 -m3 -r3 --me hex --no-8x8dct --direct spatial --no-dct-decimate -t0  --slice-max-mbs 50
 OPT2 = --crf 26 -b4 -m5 -r2 --me hex --cqm jvt --nr 100 --psnr --no-mixed-refs --b-adapt 2 --slice-max-size 1500
 OPT3 = --crf 18 -b3 -m9 -r5 --me umh -t1 -A all --b-pyramid normal --direct auto --no-fast-pskip --no-mbtree
-OPT4 = --crf 22 -b3 -m7 -r4 --me esa -t2 -A all --psy-rd 1.0:1.0 --slices 4
+OPT4 = --crf 22 -b3 -m7 -r4 --me esa -t2 -A all --psy-rd 1.0:1.0 --slices 4 --fgo 8 --fade-compensate 0.5
 OPT5 = --frames 50 --crf 24 -b3 -m10 -r3 --me tesa -t2
 OPT6 = --frames 50 -q0 -m9 -r2 --me hex -Aall
 OPT7 = --frames 50 -q0 -m2 -r1 --me hex --no-cabac

@@ -610,6 +610,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
         h->param.analyse.i_trellis = 0;
         h->param.analyse.b_fast_pskip = 0;
         h->param.analyse.i_noise_reduction = 0;
+        h->param.analyse.i_fgo = 0;
         h->param.analyse.b_psy = 0;
         h->param.i_bframe = 0;
         /* 8x8dct is not useful without RD in CAVLC lossless */
@@ -832,7 +833,13 @@ static int x264_validate_parameters( x264_t *h, int b_open )
         h->param.analyse.intra &= ~X264_ANALYSE_I8x8;
     }
     h->param.analyse.i_trellis = x264_clip3( h->param.analyse.i_trellis, 0, 2 );
-    h->param.rc.i_aq_mode = x264_clip3( h->param.rc.i_aq_mode, 0, 2 );
+
+    if( h->param.analyse.i_weighted_pred == X264_WEIGHTP_NONE )
+        h->param.rc.f_fade_compensate += 0.1;
+    if( !h->param.rc.b_mb_tree )
+        h->param.rc.f_fade_compensate = 0;
+
+    h->param.rc.i_aq_mode = x264_clip3( h->param.rc.i_aq_mode, 0, 4 );
     h->param.rc.f_aq_strength = x264_clip3f( h->param.rc.f_aq_strength, 0, 3 );
     if( h->param.rc.f_aq_strength == 0 )
         h->param.rc.i_aq_mode = 0;
@@ -870,6 +877,7 @@ static int x264_validate_parameters( x264_t *h, int b_open )
     {
         h->param.analyse.f_psy_rd = 0;
         h->param.analyse.f_psy_trellis = 0;
+        h->param.rc.f_fade_compensate = 0;
     }
     h->param.analyse.f_psy_rd = x264_clip3f( h->param.analyse.f_psy_rd, 0, 10 );
     h->param.analyse.f_psy_trellis = x264_clip3f( h->param.analyse.f_psy_trellis, 0, 10 );
@@ -943,6 +951,25 @@ static int x264_validate_parameters( x264_t *h, int b_open )
 
     if( !h->param.analyse.i_weighted_pred && h->param.rc.b_mb_tree && h->param.analyse.b_psy )
         h->param.analyse.i_weighted_pred = X264_WEIGHTP_FAKE;
+
+    if( h->param.analyse.i_fgo )
+    {
+        if( h->param.analyse.i_subpel_refine < 7 )
+        {
+            x264_log( h, X264_LOG_WARNING, "fgo requires subme >= 7\n" );
+            h->param.analyse.i_fgo = 0;
+        }
+        else
+        {
+            /* Arbitrary clipping. */
+            h->param.analyse.i_fgo = x264_clip3( h->param.analyse.i_fgo, 0, 50 );
+            /* P-skip's threshold isn't necessarily accurate when using NSSD/FGO */
+            h->param.analyse.b_fast_pskip = 0;
+            /* B-frame QPs need to be lower to retain grain */
+            /* Arbitrary formula to scale pbratio based on fgo strength. */
+            h->param.rc.f_pb_factor = 1 + (h->param.rc.f_pb_factor - 1) / pow(h->param.analyse.i_fgo, 0.3);
+        }
+    }
 
     if( h->i_thread_frames > 1 )
     {
@@ -1050,6 +1077,7 @@ static void mbcmp_init( x264_t *h )
     memcpy( h->pixf.fpelcmp, satd ? h->pixf.satd : h->pixf.sad, sizeof(h->pixf.fpelcmp) );
     memcpy( h->pixf.fpelcmp_x3, satd ? h->pixf.satd_x3 : h->pixf.sad_x3, sizeof(h->pixf.fpelcmp_x3) );
     memcpy( h->pixf.fpelcmp_x4, satd ? h->pixf.satd_x4 : h->pixf.sad_x4, sizeof(h->pixf.fpelcmp_x4) );
+    memcpy( h->pixf.rdcmp, h->param.analyse.i_fgo ? h->pixf.nssd : h->pixf.ssd, sizeof(h->pixf.rdcmp) );
 }
 
 static void chroma_dsp_init( x264_t *h )
@@ -1472,6 +1500,7 @@ int x264_encoder_reconfig( x264_t *h, x264_param_t *param )
     COPY( analyse.b_mixed_references );
     COPY( analyse.f_psy_rd );
     COPY( analyse.f_psy_trellis );
+    COPY( analyse.i_fgo );
     COPY( crop_rect );
     // can only twiddle these if they were enabled to begin with:
     if( h->param.analyse.i_me_method >= X264_ME_ESA || param->analyse.i_me_method < X264_ME_ESA )
